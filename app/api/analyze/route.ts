@@ -134,16 +134,14 @@ async function analyzeWithAI(
       category: analysis.category || 'Unknown',
       tags: Array.isArray(analysis.tags) ? analysis.tags.slice(0, 5) : [],
     };
-  } catch (error) {
+  } catch (error: any) {
+    // Check for Gemini API quota/429 error
+    if (error?.response?.status === 429 || error?.status === 429) {
+      throw new Error('AI_QUOTA_EXCEEDED');
+    }
     console.error('AI Analysis Error:', error);
     // Graceful fallback
-    return {
-      summary: 'Unable to analyze this website at the moment.',
-      risk_score: 50,
-      reason: 'Analysis failed or not available.',
-      category: 'Uncategorized',
-      tags: ['error'],
-    };
+    throw new Error('AI_ANALYSIS_FAILED');
   }
 }
 
@@ -205,9 +203,45 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Analyze
-    const analysis = await analyzeWithAI(scrapedContent);
+    let analysis;
+    try {
+      analysis = await analyzeWithAI(scrapedContent);
+    } catch (aiError: any) {
+      if (aiError.message === 'AI_QUOTA_EXCEEDED') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'AI quota exceeded. Please try again later.',
+          },
+          { status: 429 },
+        );
+      }
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'AI analysis failed. Please try again later.',
+        },
+        { status: 500 },
+      );
+    }
 
-    // 6. Save & Return
+    // 6. Save & Return (only if analysis is valid)
+    // If the analysis is a fallback/failure, do not save to DB or return a fake result
+    if (
+      analysis.summary === 'Unable to analyze this website at the moment.' &&
+      analysis.reason === 'Analysis failed or not available.' &&
+      analysis.category === 'Uncategorized' &&
+      analysis.tags.includes('error')
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'AI analysis failed. Please try again later.',
+        },
+        { status: 500 },
+      );
+    }
+
     const screenshotUrl = `https://api.microlink.io?url=${encodeURIComponent(normalizedUrl)}&screenshot=true&meta=false&embed=screenshot.url`;
     const scanToSave = {
       url_hash: urlHash,

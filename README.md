@@ -232,4 +232,3 @@ MIT License - Use freely for personal or commercial projects.
 
 ---
 
-Built with ❤️ using 100% free-tier services. No credit card required! 🚀

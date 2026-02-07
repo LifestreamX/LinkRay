@@ -33,9 +33,10 @@ export async function getCachedScan(urlHash: string): Promise<Scan | null> {
 export async function saveScan(
   scan: Omit<Scan, 'id' | 'created_at'>,
 ): Promise<Scan | null> {
+  // Always use server timestamp for created_at
   const { data, error } = await supabase
     .from('scans')
-    .insert(scan)
+    .insert({ ...scan, created_at: undefined }) // let DB default NOW()
     .select()
     .single();
 
@@ -47,16 +48,24 @@ export async function saveScan(
   return data as Scan;
 }
 
-export async function getRecentScans(limit: number = 3): Promise<Scan[]> {
-  const { data, error } = await supabase
+export async function getRecentScans(limit?: number): Promise<Scan[]> {
+  let query = supabase
     .from('scans')
     .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
+    .order('created_at', { ascending: true });
+  if (limit !== undefined) {
+    query = query.limit(limit);
+  }
+  const { data, error } = await query;
   if (error || !data) {
+    console.log('getRecentScans: error or no data', error);
     return [];
   }
-
+  console.log(
+    'getRecentScans: returned',
+    data.length,
+    'rows:',
+    data.map((row: any) => row.id),
+  );
   return data as Scan[];
 }

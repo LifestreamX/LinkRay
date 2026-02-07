@@ -3,7 +3,7 @@ import { getRecentScans } from '@/lib/supabase';
 
 export async function GET() {
   try {
-    const scans = await getRecentScans(5);
+    const scans = await getRecentScans(10); // Limit to 10 most recent scans
     return NextResponse.json({ success: true, data: scans });
   } catch (error) {
     console.error('Error fetching recent scans:', error);

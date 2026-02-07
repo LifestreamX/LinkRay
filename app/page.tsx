@@ -21,7 +21,8 @@ export default function Home() {
       const response = await fetch('/api/recent');
       const data = await response.json();
       if (data.success) {
-        setRecentScans(data.data);
+        // Flip the array so most recent is at the top if backend returns oldest-first
+        setRecentScans([...data.data].reverse());
       }
     } catch (error) {
       console.error('Failed to fetch recent scans:', error);
@@ -66,6 +67,7 @@ export default function Home() {
         // Refresh recent scans
         fetchRecentScans();
       } else {
+        setResult(null); // Prevent showing stale/partial result
         setError(data.error || 'Failed to analyze URL');
       }
     } catch (error) {
@@ -79,6 +81,11 @@ export default function Home() {
     setUrl(scanUrl);
     setResult(null);
     setError(null);
+    // Auto-trigger analysis after setting the URL
+    setTimeout(() => {
+      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+      handleAnalyze(fakeEvent);
+    }, 0);
   };
 
   return (
