@@ -44,10 +44,13 @@ export default function Home() {
 
   const fetchRecentScans = async () => {
     try {
-      const response = await fetch('/api/recent');
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      const response = await fetch('/api/recent', {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      });
       const data = await response.json();
       if (data.success) {
-        // Flip the array so most recent is at the top if backend returns oldest-first
         setRecentScans([...data.data].reverse());
       }
     } catch (error) {
@@ -68,10 +71,13 @@ export default function Home() {
     setResult(null);
 
     try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify({ url }),
       });

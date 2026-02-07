@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
-import { getCachedScan, saveScan, supabase } from '@/lib/supabase';
+import { getCachedScan } from '@/lib/supabase';
 import { hashUrl, validateUrl } from '@/lib/utils';
+import { createClient } from '@supabase/supabase-js';
 import type {
   AnalysisRequest,
   GeminiAnalysisResult,
@@ -71,7 +72,6 @@ function scrapeContent(html: string): ScrapedContent {
 
   for (const selector of mainSelectors) {
     const content = $(selector).text();
-    // Keep the largest block of text found
     if (content.length > text.length) {
       text = content;
     }
@@ -86,18 +86,33 @@ function scrapeContent(html: string): ScrapedContent {
 }
 
 /**
- * Analyze content with Gemini AI
+ * Helper to call Gemini with a specific model
+ */
+async function callGemini(modelName: string, prompt: string): Promise<any> {
+  console.log(`🤖 Attempting to analyze with model: ${modelName}...`);
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: { responseMimeType: 'application/json' },
+  });
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  return JSON.parse(response.text());
+}
+
+/**
+ * Analyze content with Gemini AI (With Fallback Strategy)
  */
 async function analyzeWithAI(
   content: ScrapedContent,
 ): Promise<GeminiAnalysisResult> {
-  // ✅ Using 'gemini-flash-latest' which is working for your account
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-flash-latest',
-    generationConfig: { responseMimeType: 'application/json' },
-  });
+  const modelsToTry = [
+    'gemini-2.0-flash-lite-001', // ✅ CORRECT NAME from your debug list
+    'gemini-flash-lite-latest', // Backup Lite alias
+    'gemini-3-flash-preview', // Try this again (it might recover from 503)
+    'gemini-2.5-flash', // Standard (Currently full, but keep as backup)
+  ];
 
-  // ✅ UPDATED PROMPT: Requesting a bigger, better summary
   const prompt = `You are a cybersecurity expert. Analyze this website content.
   Title: ${content.title}
   Content: ${content.text}
@@ -117,31 +132,27 @@ async function analyzeWithAI(
     "tags": ["tag1", "tag2", "tag3"]
   }`;
 
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+  // 2. Loop through models until one works
+  for (const modelName of modelsToTry) {
+    try {
+      const analysis = await callGemini(modelName, prompt);
 
-    // Parse JSON
-    const analysis = JSON.parse(text);
-
-    return {
-      summary: analysis.summary || 'Unable to generate summary',
-      risk_score:
-        typeof analysis.risk_score === 'number' ? analysis.risk_score : 50,
-      reason: analysis.reason || 'No explanation provided.',
-      category: analysis.category || 'Unknown',
-      tags: Array.isArray(analysis.tags) ? analysis.tags.slice(0, 5) : [],
-    };
-  } catch (error: any) {
-    // Check for Gemini API quota/429 error
-    if (error?.response?.status === 429 || error?.status === 429) {
-      throw new Error('AI_QUOTA_EXCEEDED');
+      return {
+        summary: analysis.summary || 'Unable to generate summary',
+        risk_score:
+          typeof analysis.risk_score === 'number' ? analysis.risk_score : 50,
+        reason: analysis.reason || 'No explanation provided.',
+        category: analysis.category || 'Unknown',
+        tags: Array.isArray(analysis.tags) ? analysis.tags.slice(0, 5) : [],
+      };
+    } catch (error: any) {
+      console.warn(`⚠️ Failed with ${modelName}:`, error.message);
+      // Continue loop...
     }
-    console.error('AI Analysis Error:', error);
-    // Graceful fallback
-    throw new Error('AI_ANALYSIS_FAILED');
   }
+
+  // 3. If ALL models failed
+  throw new Error('AI_ANALYSIS_FAILED');
 }
 
 /**
@@ -149,10 +160,25 @@ async function analyzeWithAI(
  */
 export async function POST(request: Request) {
   try {
-    // Get user session from Supabase Auth (using cookies)
+    // Extract access token from Authorization header
+    const authHeader = request.headers.get('Authorization');
+    const accessToken = authHeader?.replace('Bearer ', '') || '';
+
+    // Create a Supabase client with the user's access token for authenticated operations
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : '',
+        },
+      },
+    });
+
+    // Get user from access token
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await supabaseAuth.auth.getUser();
 
     const body: AnalysisRequest = await request.json();
     const { url } = body;
@@ -169,7 +195,8 @@ export async function POST(request: Request) {
     const normalizedUrl = validation.normalized!;
     const urlHash = hashUrl(normalizedUrl);
 
-    // 2. If user is signed in, check cache for their scan
+    // 2. Check Cache (Only if user is logged in, or check generic cache?
+    // Usually cache is good for everyone, but let's stick to your logic)
     if (user) {
       const cachedScan = await getCachedScan(urlHash);
       if (cachedScan && cachedScan.user_id === user.id) {
@@ -208,36 +235,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5. Analyze
+    // 5. Analyze (With Fallback)
     let analysis;
     try {
       analysis = await analyzeWithAI(scrapedContent);
     } catch (aiError: any) {
-      if (aiError.message === 'AI_QUOTA_EXCEEDED') {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'AI quota exceeded. Please try again later.',
-          },
-          { status: 429 },
-        );
-      }
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'AI analysis failed. Please try again later.',
-        },
-        { status: 500 },
-      );
-    }
-
-    // 6. Save & Return (only if analysis is valid and user is signed in)
-    if (
-      analysis.summary === 'Unable to analyze this website at the moment.' &&
-      analysis.reason === 'Analysis failed or not available.' &&
-      analysis.category === 'Uncategorized' &&
-      analysis.tags.includes('error')
-    ) {
       return NextResponse.json(
         {
           success: false,
@@ -249,8 +251,8 @@ export async function POST(request: Request) {
 
     const screenshotUrl = `https://api.microlink.io?url=${encodeURIComponent(normalizedUrl)}&screenshot=true&meta=false&embed=screenshot.url`;
 
+    // 6. Save Logic (Preserving your logic: only save if user is logged in)
     if (user) {
-      // Save scan for signed-in user
       const scanToSave = {
         user_id: user.id,
         url_hash: urlHash,
@@ -263,45 +265,41 @@ export async function POST(request: Request) {
         screenshot_url: screenshotUrl,
         from_cache: false,
       };
-      const savedScan = await saveScan(scanToSave);
-      if (!savedScan) {
-        console.error('Supabase insert failed: scanToSave =', scanToSave);
-        return NextResponse.json(
-          { success: false, error: 'Failed to save scan to database.' },
-          { status: 500 },
-        );
+
+      // Use supabaseAuth for authenticated insert
+      const { data, error } = await supabaseAuth
+        .from('scans')
+        .insert({ ...scanToSave, created_at: undefined })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving scan:', error);
       }
+
       return NextResponse.json({
         success: true,
         data: {
-          id: savedScan.id,
-          user_id: savedScan.user_id,
-          url: savedScan.url,
-          summary: savedScan.summary,
-          risk_score: savedScan.risk_score,
-          reason: savedScan.reason,
-          category: savedScan.category,
-          tags: savedScan.tags,
-          screenshot_url: savedScan.screenshot_url,
-          created_at: savedScan.created_at,
+          id: data?.id || 'temp',
+          user_id: user.id,
+          url: normalizedUrl,
+          ...analysis,
+          screenshot_url: screenshotUrl,
+          created_at: data?.created_at || new Date().toISOString(),
           from_cache: false,
         },
       });
     } else {
-      // Anonymous: just return the analysis, do not save
+      // Anonymous User Response
       return NextResponse.json({
         success: true,
         data: {
-          id: '',
+          id: 'anon',
           user_id: '',
           url: normalizedUrl,
-          summary: analysis.summary,
-          risk_score: analysis.risk_score,
-          reason: analysis.reason,
-          category: analysis.category,
-          tags: analysis.tags,
+          ...analysis,
           screenshot_url: screenshotUrl,
-          created_at: '',
+          created_at: new Date().toISOString(),
           from_cache: false,
         },
       });
