@@ -72,6 +72,7 @@ function scrapeContent(html: string): ScrapedContent {
 
   for (const selector of mainSelectors) {
     const content = $(selector).text();
+    // Keep the largest block of text found
     if (content.length > text.length) {
       text = content;
     }
@@ -91,21 +92,28 @@ function scrapeContent(html: string): ScrapedContent {
 async function analyzeWithAI(
   content: ScrapedContent,
 ): Promise<GeminiAnalysisResult> {
-  // ✅ FINAL FIX: Use the generic stable alias 'gemini-flash-latest'
-  // This appeared explicitly in your 'debug-gemini.js' success list
+  // ✅ Using 'gemini-flash-latest' which is working for your account
   const model = genAI.getGenerativeModel({
     model: 'gemini-flash-latest',
     generationConfig: { responseMimeType: 'application/json' },
   });
 
-  const prompt = `Analyze this website.
+  // ✅ UPDATED PROMPT: Requesting a bigger, better summary
+  const prompt = `You are a cybersecurity expert. Analyze this website content.
   Title: ${content.title}
   Content: ${content.text}
 
+  Rules for Risk Score (0-100, where 100 is Safe):
+  - Phishing, Scams, Malware = 0-20
+  - Spammy, Low Quality, Unverified Crypto = 30-50
+  - Legitimate Business, Blogs, News = 80-90
+  - Verified Tech Platforms (e.g., GitHub, AWS, Google) = 95-100
+
   Return a JSON object with this EXACT structure:
   {
-    "summary": "2-sentence summary of what this website is about",
+    "summary": "A detailed 3-4 sentence paragraph summarizing the website's purpose, key features, and target audience.",
     "risk_score": 50,
+    "reason": "Explain why you gave this risk_score, referencing specific content. Be consistent with the score.",
     "category": "Category Name",
     "tags": ["tag1", "tag2", "tag3"]
   }`;
@@ -122,6 +130,7 @@ async function analyzeWithAI(
       summary: analysis.summary || 'Unable to generate summary',
       risk_score:
         typeof analysis.risk_score === 'number' ? analysis.risk_score : 50,
+      reason: analysis.reason || 'No explanation provided.',
       category: analysis.category || 'Unknown',
       tags: Array.isArray(analysis.tags) ? analysis.tags.slice(0, 5) : [],
     };
@@ -131,6 +140,7 @@ async function analyzeWithAI(
     return {
       summary: 'Unable to analyze this website at the moment.',
       risk_score: 50,
+      reason: 'Analysis failed or not available.',
       category: 'Uncategorized',
       tags: ['error'],
     };
@@ -172,7 +182,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Fetch HTML
-    let html: string;
+    let html = '';
     try {
       html = await fetchWithTimeout(normalizedUrl, FETCH_TIMEOUT);
     } catch (error: any) {

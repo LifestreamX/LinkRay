@@ -26,6 +26,7 @@ export interface ScanResult {
   url: string;
   summary: string;
   risk_score: number;
+  reason: string;
   category: string;
   tags: string[];
   screenshot_url: string;
@@ -36,6 +37,7 @@ export interface ScanResult {
 export interface GeminiAnalysisResult {
   summary: string;
   risk_score: number;
+  reason: string;
   category: string;
   tags: string[];
 }

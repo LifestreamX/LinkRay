@@ -279,6 +279,18 @@ export default function Home() {
                   </p>
                 </div>
 
+                {/* Reason for Safety Score */}
+                {result.reason && (
+                  <div className='mb-4'>
+                    <p className='text-sm text-gray-400 mb-2'>
+                      Why this Safety Score?
+                    </p>
+                    <p className='text-gray-300 leading-relaxed'>
+                      {result.reason}
+                    </p>
+                  </div>
+                )}
+
                 {/* Tags */}
                 {result.tags.length > 0 && (
                   <div className='mb-4'>
