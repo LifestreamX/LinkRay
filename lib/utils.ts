@@ -1,13 +1,71 @@
-import crypto from 'crypto';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 /**
  * Generate MD5 hash of a URL for cache lookups
  */
 export function hashUrl(url: string): string {
-  return crypto
-    .createHash('md5')
-    .update(url.toLowerCase().trim())
-    .digest('hex');
+  return md5(url.toLowerCase().trim());
+}
+
+// Simple browser-compatible MD5 hash function (for demo only)
+function md5(string: string): string {
+  let hash = 0,
+    i,
+    chr;
+  if (string.length === 0) return hash.toString();
+  for (i = 0; i < string.length; i++) {
+    chr = string.charCodeAt(i);
+    hash = (hash << 5) - hash + chr;
+    hash |= 0;
+  }
+  return hash.toString();
+}
+
+export async function crawlWebsite(
+  startUrl: string,
+  maxPages = 50,
+): Promise<{ url: string; content: string }[]> {
+  const visited = new Set<string>();
+  const results: { url: string; content: string }[] = [];
+  const domain = new URL(startUrl).hostname;
+
+  async function crawl(url: string) {
+    if (visited.has(url) || visited.size >= maxPages) return;
+    visited.add(url);
+    console.log(`[Crawler] Crawling: ${url}`);
+    try {
+      const { data } = await axios.get(url);
+      results.push({ url, content: data });
+      console.log(`[Crawler] Analyzed: ${url}`);
+      const $ = cheerio.load(data);
+      const links = $('a')
+        .map((_, a) => $(a).attr('href'))
+        .get()
+        .filter((href) => {
+          if (!href) return false;
+          try {
+            const u = new URL(href, url);
+            return u.hostname === domain && !visited.has(u.href);
+          } catch {
+            return false;
+          }
+        });
+      for (const link of links) {
+        const absolute = new URL(link, url).href;
+        await crawl(absolute);
+      }
+    } catch (e) {
+      if (e instanceof Error) {
+        console.log(`[Crawler] Error crawling ${url}:`, e.message);
+      } else {
+        console.log(`[Crawler] Error crawling ${url}:`, e);
+      }
+    }
+  }
+
+  await crawl(startUrl);
+  return results;
 }
 
 /**

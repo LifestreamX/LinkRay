@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { ScanResult, Scan } from '@/types';
-import { getRiskColor, getRiskLabel, formatRelativeTime } from '@/lib/utils';
+import { getRiskColor, formatRelativeTime } from '@/lib/utils';
 
 export default function Home() {
   // Use singleton supabase client from lib/supabase
@@ -63,7 +63,11 @@ export default function Home() {
     }
   };
 
-  const handleAnalyze = async (e: React.FormEvent) => {
+  // Unified handler for both scan types
+  const handleAnalyze = async (
+    e: React.FormEvent,
+    scanType: 'quick' | 'deep',
+  ) => {
     e.preventDefault();
 
     if (!url.trim()) {
@@ -78,7 +82,9 @@ export default function Home() {
     try {
       const session = await supabase.auth.getSession();
       const accessToken = session.data.session?.access_token;
-      const response = await fetch('/api/analyze', {
+      const endpoint =
+        scanType === 'quick' ? '/api/analyze' : '/api/analyze/deep';
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -91,7 +97,6 @@ export default function Home() {
       try {
         data = await response.json();
       } catch (jsonError) {
-        // If parsing fails, show a user-friendly error
         setError(
           'Website could not be analyzed. It may block bots or return invalid data.',
         );
@@ -101,10 +106,9 @@ export default function Home() {
 
       if (data.success) {
         setResult(data.data);
-        // Refresh recent scans
         fetchRecentScans();
       } else {
-        setResult(null); // Prevent showing stale/partial result
+        setResult(null);
         setError(data.error || 'Failed to analyze URL');
       }
     } catch (error) {
@@ -204,49 +208,36 @@ export default function Home() {
 
         {/* Search Form */}
         <div className='mb-12 max-w-5xl mx-auto w-full'>
-          <form onSubmit={handleAnalyze} className='max-w-5xl w-full mx-auto'>
+          <form className='max-w-5xl w-full mx-auto'>
             <div className='bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-700'>
-              <div className='flex flex-col md:flex-row gap-4'>
+              <div className='flex flex-col md:flex-row gap-4 items-center justify-center'>
                 <input
                   type='text'
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder='Enter a URL to analyze (e.g., example.com)'
-                  className='w-full md:flex-1 bg-gray-900/50 border border-gray-600 rounded-xl px-8 py-5 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all mb-4 md:mb-0'
+                  className='w-full md:flex-1 bg-gray-900/50 border border-gray-600 rounded-xl px-5 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all mb-0 h-14 min-h-0'
+                  style={{ height: '56px', minHeight: '0', marginBottom: 0 }}
                   disabled={loading}
                 />
-                <button
-                  type='submit'
-                  disabled={loading}
-                  className='w-full md:w-auto bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-10 py-5 rounded-xl transition-all transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed shadow-lg'
-                >
-                  {loading ? (
-                    <span className='flex items-center gap-2'>
-                      <svg
-                        className='animate-spin h-5 w-5'
-                        fill='none'
-                        viewBox='0 0 24 24'
-                      >
-                        <circle
-                          className='opacity-25'
-                          cx='12'
-                          cy='12'
-                          r='10'
-                          stroke='currentColor'
-                          strokeWidth='4'
-                        ></circle>
-                        <path
-                          className='opacity-75'
-                          fill='currentColor'
-                          d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
-                        ></path>
-                      </svg>
-                      Analyzing...
-                    </span>
-                  ) : (
-                    'Analyze'
-                  )}
-                </button>
+                <div className='flex flex-col gap-2 w-full md:w-auto'>
+                  <button
+                    type='button'
+                    disabled={loading}
+                    onClick={(e) => handleAnalyze(e as any, 'quick')}
+                    className='w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-8 py-4 rounded-xl transition-all transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed shadow-lg mb-2'
+                  >
+                    {loading ? 'Analyzing...' : 'Quick Analyze'}
+                  </button>
+                  <button
+                    type='button'
+                    disabled={loading}
+                    onClick={(e) => handleAnalyze(e as any, 'deep')}
+                    className='w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold px-8 py-4 rounded-xl transition-all transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed shadow-lg'
+                  >
+                    {loading ? 'Analyzing...' : 'Deep Analyze'}
+                  </button>
+                </div>
               </div>
             </div>
           </form>
@@ -298,25 +289,11 @@ export default function Home() {
         )}
 
         {/* Result Card */}
-        {result && (
+        {result && !Array.isArray(result) && (
           <div className='max-w-5xl mx-auto mb-12 w-full'>
-            <div className='bg-gray-800/50 backdrop-blur-sm rounded-2xl overflow-hidden shadow-2xl border border-gray-700'>
-              {/* Screenshot */}
-              <div className='bg-gray-900/50 p-4'>
-                <img
-                  src={result.screenshot_url}
-                  alt='Website screenshot'
-                  className='w-full rounded-lg'
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="800" height="450"%3E%3Crect fill="%23374151" width="800" height="450"/%3E%3Ctext fill="%239CA3AF" font-family="system-ui" font-size="20" x="50%25" y="50%25" text-anchor="middle" dominant-baseline="middle"%3EScreenshot unavailable%3C/text%3E%3C/svg%3E';
-                  }}
-                />
-              </div>
-
-              {/* Content */}
+            <div className='bg-gray-800/50 backdrop-blur-sm rounded-2xl overflow-hidden shadow-2xl border border-gray-700 mb-8'>
               <div className='p-6'>
-                {/* Risk Score */}
+                {/* Safety Score Bar and Label */}
                 <div className='mb-6'>
                   <div className='flex items-center justify-between mb-2'>
                     <span className='text-gray-400 text-sm font-medium'>
@@ -325,7 +302,7 @@ export default function Home() {
                     <span
                       className={`text-3xl font-bold ${getRiskColor(result.risk_score)}`}
                     >
-                      {result.risk_score}/100
+                      {result.risk_score ?? 'N/A'}/100
                     </span>
                   </div>
                   <div className='w-full bg-gray-700 rounded-full h-3 overflow-hidden'>
@@ -337,89 +314,56 @@ export default function Home() {
                             ? 'bg-yellow-500'
                             : 'bg-red-500'
                       }`}
-                      style={{ width: `${result.risk_score}%` }}
+                      style={{ width: `${result.risk_score ?? 0}%` }}
                     ></div>
                   </div>
                   <p
                     className={`text-sm mt-2 font-semibold ${getRiskColor(result.risk_score)}`}
                   >
-                    {getRiskLabel(result.risk_score)}
+                    {result.risk_score >= 80
+                      ? 'Safe'
+                      : result.risk_score >= 50
+                        ? 'Caution'
+                        : 'Risky'}
                   </p>
                 </div>
-
-                {/* URL */}
-                <div className='mb-4'>
-                  <p className='text-sm text-gray-400 mb-1'>URL</p>
-                  <p className='text-blue-400 break-all'>{result.url}</p>
-                </div>
-
-                {/* Category */}
-                <div className='mb-4'>
-                  <p className='text-sm text-gray-400 mb-1'>Category</p>
-                  <span className='inline-block bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full text-sm font-medium'>
-                    {result.category}
+                <div className='mb-2'>
+                  <span className='text-gray-400 text-sm font-medium'>
+                    Category:{' '}
                   </span>
+                  <span>{result.category ?? 'N/A'}</span>
                 </div>
-
-                {/* Summary */}
-                <div className='mb-4'>
-                  <p className='text-sm text-gray-400 mb-2'>Summary</p>
-                  <p className='text-gray-200 leading-relaxed'>
-                    {result.summary}
-                  </p>
+                <div className='mb-2'>
+                  <span className='text-gray-400 text-sm font-medium'>
+                    Summary:{' '}
+                  </span>
+                  <span>{result.summary ?? 'N/A'}</span>
                 </div>
-
-                {/* Reason for Safety Score */}
                 {result.reason && (
-                  <div className='mb-4'>
-                    <p className='text-sm text-gray-400 mb-2'>
-                      Why this Safety Score?
-                    </p>
-                    <p className='text-gray-300 leading-relaxed'>
-                      {result.reason}
-                    </p>
+                  <div className='mb-2'>
+                    <span className='text-gray-400 text-sm font-medium'>
+                      Why this Safety Score?{' '}
+                    </span>
+                    <span>{result.reason}</span>
                   </div>
                 )}
-
-                {/* Tags */}
-                {result.tags.length > 0 && (
-                  <div className='mb-4'>
-                    <p className='text-sm text-gray-400 mb-2'>Tags</p>
-                    <div className='flex flex-wrap gap-2'>
-                      {result.tags.map((tag, index) => (
+                {Array.isArray(result.tags) && result.tags.length > 0 && (
+                  <div className='mb-2'>
+                    <span className='text-gray-400 text-sm font-medium'>
+                      Tags:{' '}
+                    </span>
+                    <span>
+                      {result.tags.map((tag: string, i: number) => (
                         <span
-                          key={index}
-                          className='bg-gray-700 text-gray-300 px-3 py-1 rounded-full text-sm'
+                          key={i}
+                          className='bg-gray-700 text-gray-300 px-2 py-1 rounded-full text-xs mr-2'
                         >
                           #{tag}
                         </span>
                       ))}
-                    </div>
+                    </span>
                   </div>
                 )}
-
-                {/* Meta Info */}
-                <div className='mt-6 pt-4 border-t border-gray-700 flex items-center justify-between text-sm text-gray-400'>
-                  <span>{formatRelativeTime(result.created_at)}</span>
-                  {result.from_cache && (
-                    <span className='flex items-center gap-1'>
-                      <svg
-                        className='w-4 h-4'
-                        fill='none'
-                        stroke='currentColor'
-                        viewBox='0 0 24 24'
-                      >
-                        <path
-                          strokeLinecap='round'
-                          strokeLinejoin='round'
-                          strokeWidth={2}
-                          d='M13 10V3L4 14h7v7l9-11h-7z'
-                        />
-                      </svg>
-                      From cache
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
           </div>

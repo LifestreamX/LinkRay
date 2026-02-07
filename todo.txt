@@ -1,9 +1,7 @@
 
 
-TODO: Recent Scan bug not showing most recent when over 10 scans saved
+TODO: Does ai search entire website or just front page?
 
 TODO: How does AI rank safety score
-
-TODO: Does ai search entire website or just front page?
 
 TODO: Maybe add detail anaysisi button opens modal or something that has a long detail summary about the company
