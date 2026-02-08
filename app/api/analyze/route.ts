@@ -106,11 +106,14 @@ async function callGemini(modelName: string, prompt: string): Promise<any> {
 async function analyzeWithAI(
   content: ScrapedContent,
 ): Promise<GeminiAnalysisResult> {
+  // ✅ THE ULTIMATE FREE LIST
+  // This tries your huge quotas first, then falls back to others.
   const modelsToTry = [
-    'gemini-2.0-flash-lite-001', // ✅ CORRECT NAME from your debug list
-    'gemini-flash-lite-latest', // Backup Lite alias
-    'gemini-3-flash-preview', // Try this again (it might recover from 503)
-    'gemini-2.5-flash', // Standard (Currently full, but keep as backup)
+    'gemma-3-27b-it', // 1. HUGE QUOTA (14,400/day) - Try this first!
+    'gemini-2.0-flash-lite-001', // 2. Separate "Lite" Bucket (1,500/day)
+    'gemini-exp-1206', // 3. Experimental Bucket (Separate quota)
+    'gemini-2.5-flash', // 4. Standard Flash (Your 20/day - backup)
+    'gemini-flash-latest', // 5. Final Backup
   ];
 
   const prompt = `You are a cybersecurity expert. Analyze this website content.
@@ -132,7 +135,7 @@ async function analyzeWithAI(
     "tags": ["tag1", "tag2", "tag3"]
   }`;
 
-  // 2. Loop through models until one works
+  // Loop through models until one works
   for (const modelName of modelsToTry) {
     try {
       const analysis = await callGemini(modelName, prompt);
@@ -147,11 +150,11 @@ async function analyzeWithAI(
       };
     } catch (error: any) {
       console.warn(`⚠️ Failed with ${modelName}:`, error.message);
-      // Continue loop...
+      // Continue loop to the next model...
     }
   }
 
-  // 3. If ALL models failed
+  // If ALL models failed
   throw new Error('AI_ANALYSIS_FAILED');
 }
 
@@ -164,7 +167,7 @@ export async function POST(request: Request) {
     const authHeader = request.headers.get('Authorization');
     const accessToken = authHeader?.replace('Bearer ', '') || '';
 
-    // Create a Supabase client with the user's access token for authenticated operations
+    // Create a Supabase client with the user's access token
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
@@ -195,8 +198,7 @@ export async function POST(request: Request) {
     const normalizedUrl = validation.normalized!;
     const urlHash = hashUrl(normalizedUrl);
 
-    // 2. Check Cache (Only if user is logged in, or check generic cache?
-    // Usually cache is good for everyone, but let's stick to your logic)
+    // 2. Check Cache
     if (user) {
       const cachedScan = await getCachedScan(urlHash);
       if (cachedScan && cachedScan.user_id === user.id) {
@@ -251,7 +253,7 @@ export async function POST(request: Request) {
 
     const screenshotUrl = `https://api.microlink.io?url=${encodeURIComponent(normalizedUrl)}&screenshot=true&meta=false&embed=screenshot.url`;
 
-    // 6. Save Logic (Preserving your logic: only save if user is logged in)
+    // 6. Save Logic
     if (user) {
       const scanToSave = {
         user_id: user.id,
@@ -266,7 +268,6 @@ export async function POST(request: Request) {
         from_cache: false,
       };
 
-      // Use supabaseAuth for authenticated insert
       const { data, error } = await supabaseAuth
         .from('scans')
         .insert({ ...scanToSave, created_at: undefined })

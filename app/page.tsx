@@ -177,7 +177,7 @@ export default function Home() {
           </div>
         )}
       </div>
-      <div className='w-full max-w-7xl mx-auto px-4 py-6 flex flex-col items-center justify-center mb-36'>
+      <div className='w-full max-w-7xl mx-auto px-4 py-6 flex flex-col items-center justify-center lg:mt-36'>
         {/* Header */}
         <header className='text-center mb-12 pt-8 max-w-5xl mx-auto w-full'>
           <div className='inline-flex items-center gap-3 mb-4'>
